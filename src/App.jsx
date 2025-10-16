@@ -1,18 +1,16 @@
 import { Canvas, useFrame } from '@react-three/fiber';
-import { XR, ARButton, useHitTest, useXR } from '@react-three/xr';
+import { XR, useHitTest, useXR } from '@react-three/xr';
 import { OrbitControls } from '@react-three/drei';
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import * as THREE from 'three';
 import './index.css';
 
 // ---------- Cube Model ----------
 function Model({ color, scale }) {
   const ref = useRef();
-
   useFrame(() => {
     if (ref.current) ref.current.rotation.y += 0.01;
   });
-
   return (
     <mesh ref={ref} scale={scale}>
       <boxGeometry args={[0.2, 0.2, 0.2]} />
@@ -36,12 +34,9 @@ function ARPlacement({ color, scale }) {
     }
   });
 
-  const { player } = useXR();
-
   const onSelect = () => {
     if (reticle.current) {
-      const pos = reticle.current.position.clone();
-      setModelPos(pos);
+      setModelPos(reticle.current.position.clone());
     }
   };
 
@@ -64,7 +59,6 @@ function ARPlacement({ color, scale }) {
 // ---------- Exit Button ----------
 function ExitARButton() {
   const { isPresenting } = useXR();
-
   if (!isPresenting) return null;
 
   const handleExit = async () => {
@@ -82,6 +76,53 @@ function ExitARButton() {
   );
 }
 
+// ---------- Custom AR Button (Safe Outside R3F) ----------
+function SafeARButton() {
+  useEffect(() => {
+    const button = document.createElement('button');
+    button.textContent = 'Enter AR';
+    button.style.position = 'absolute';
+    button.style.bottom = '20px';
+    button.style.left = '50%';
+    button.style.transform = 'translateX(-50%)';
+    button.style.padding = '12px 24px';
+    button.style.background = '#007bff';
+    button.style.color = 'white';
+    button.style.border = 'none';
+    button.style.borderRadius = '8px';
+    button.style.fontSize = '16px';
+    button.style.cursor = 'pointer';
+    button.style.zIndex = 9999;
+    document.body.appendChild(button);
+
+    button.onclick = async () => {
+      if (!navigator.xr) {
+        alert('WebXR not supported on this device.');
+        return;
+      }
+
+      const supported = await navigator.xr.isSessionSupported('immersive-ar');
+      if (!supported) {
+        alert('AR not supported on this browser.');
+        return;
+      }
+
+      const canvas = document.querySelector('canvas');
+      const gl = canvas.getContext('webgl', { xrCompatible: true });
+
+      const session = await navigator.xr.requestSession('immersive-ar', {
+        requiredFeatures: ['hit-test', 'local-floor'],
+      });
+
+      session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+    };
+
+    return () => button.remove();
+  }, []);
+
+  return null;
+}
+
 // ---------- Main App ----------
 export default function App() {
   const [color, setColor] = useState('#ff0000');
@@ -90,11 +131,10 @@ export default function App() {
 
   return (
     <div className="w-screen h-screen relative overflow-hidden">
-      {/* AR Activation */}
-      <ARButton sessionInit={{ requiredFeatures: ['hit-test'] }} />
+      <SafeARButton />
 
       <Canvas camera={{ position: [0, 1, 3], fov: 70 }}>
-        <XR onSelect={() => {}}>
+        <XR>
           <ambientLight intensity={1} />
           <directionalLight position={[2, 2, 2]} />
           <ARPlacement color={color} scale={scale} />
@@ -103,11 +143,12 @@ export default function App() {
         </XR>
       </Canvas>
 
-      {/* Controls */}
+      {/* UI Controls */}
       <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-md text-white p-4 rounded-2xl shadow-xl w-64 transition-all duration-500 z-50">
         {!collapsed ? (
           <>
             <h2 className="text-lg font-bold mb-2">AR Model Controls</h2>
+
             <label className="text-sm">Color:</label>
             <input
               type="color"
